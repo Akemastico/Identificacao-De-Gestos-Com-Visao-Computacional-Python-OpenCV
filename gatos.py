@@ -26,8 +26,8 @@ modelConfig = vision.HandLandmarkerOptions(
     base_options=modelAsset,
     running_mode=vision.RunningMode.VIDEO,
     num_hands=2,
-    min_hand_detection_confidence=0.5,
-    min_hand_presence_confidence=0.5
+    min_hand_detection_confidence=0.6,
+    min_hand_presence_confidence=0.6
 )
 detector = vision.HandLandmarker.create_from_options(modelConfig)
 
@@ -38,8 +38,7 @@ def verifyFingerIsUp(hand: list, point: int, holder: int, margin: float) -> bool
 
 
 def verifyThumbIsUp(hand: list, point: int, holder: int, margin: float) -> bool:
-    return hand[point].x > hand[holder].x + margin
-
+    return hand[point].x > hand[holder].x + margin 
 
 def createMediapipeImage(rgbimage):
     return mp.Image(image_format=mp.ImageFormat.SRGB, data=rgbimage)
@@ -56,9 +55,8 @@ def verifyWhatFingerIsUp(hand) -> list:
     fingersUp = [finger for finger, isUp in fingersDict.items() if isUp]
     return fingersUp
 
-
 def verifyGesture(fingersUp: list) -> str:
-    return GESTOS.get(frozenset(fingersUp), 'nao identificado')
+    return GESTOS.get(frozenset(fingersUp), 'Não existe')
 
 
 def GestureExecuter(gesture: str) -> None:
@@ -82,16 +80,17 @@ def main() -> None:
         result = detector.detect_for_video(imageMp, timestamp_ms)
 
         for hand in result.hand_landmarks:
-            fingersUp = verifyWhatFingerIsUp(hand)
-            gesto_atual = verifyGesture(fingersUp)
+            ActualGesture = ''
+            if counter % 5 == 0:
+                fingersUp = verifyWhatFingerIsUp(hand)
+                buffer = verifyGesture(fingersUp)
+                ActualGesture = buffer
 
             # debug pra ve se ta workando
-            if counter % 15 == 0:
-                print(fingersUp, "->", gesto_atual)
 
-            if gesto_atual != gesto_anterior:
-                GestureExecuter(gesto_atual)
-                gesto_anterior = gesto_atual
+            if ActualGesture != gesto_anterior:
+                GestureExecuter(ActualGesture)
+                gesto_anterior = ActualGesture
 
         cv2.imshow('Camera', frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
