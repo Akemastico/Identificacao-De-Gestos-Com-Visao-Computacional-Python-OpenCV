@@ -272,7 +272,7 @@ class TestMainExibeMeme(unittest.TestCase):
     def _rodar_main(self, score):
         camera = CameraComFrames()
         reconhecedor = mock.Mock(limiar=0.5)
-        reconhecedor.verificar.return_value = (score, (0, 0, 5, 5))
+        reconhecedor.melhor_score.return_value = score
         detector = mock.Mock()
         detector.detect_for_video.return_value = mock.Mock(hand_landmarks=[])
 

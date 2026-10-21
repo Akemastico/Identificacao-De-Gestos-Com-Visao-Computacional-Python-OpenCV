@@ -261,8 +261,9 @@ def main() -> None:
             # muda de estado depois de LEITURAS_CONFIRMACAO_ROSTO leituras
             # seguidas do mesmo lado (~2 s para entrar e ~2 s para sair).
             if reconhecedor is not None and counter % INTERVALO_ROSTO == 0:
-                leitura = reconhecedor.verificar(frame)
-                score = leitura[0] if leitura is not None else None
+                # melhor_score olha TODOS os rostos: com publico na frente,
+                # um estranho mais perto nao pode decidir pelo Bini.
+                score = reconhecedor.melhor_score(frame)
                 reconhecido = estabilizador.atualizar(score)
 
             # Enquanto o rosto reconhecido estiver no quadro, a tela mostra só

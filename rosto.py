@@ -277,3 +277,23 @@ class ReconhecedorRosto:
             (self._assinatura(imagem, rosto), self._caixa_original(rosto, imagem, frame))
             for rosto in rostos
         ]
+
+    def melhor_score(self, frame):
+        """Maior similaridade entre TODOS os rostos do frame e o centroide.
+
+        Pontuar so o maior rosto deixava quem estivesse mais perto da camera
+        decidir — inclusive um estranho na frente da pessoa cadastrada. Aqui
+        qualquer rosto do quadro pode ativar o reconhecimento.
+
+        Devolve `None` se nao houver rosto no frame.
+        """
+        if self.centroide is None:
+            raise RuntimeError(
+                "reconhecedor sem calibracao: chame calibrar() ou carregar()"
+            )
+
+        scores = [
+            float(np.dot(self.centroide, vetor))
+            for vetor, _ in self.vetores_de(frame)
+        ]
+        return max(scores) if scores else None

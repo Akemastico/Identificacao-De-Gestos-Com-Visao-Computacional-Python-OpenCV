@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import cv2
 import numpy as np
@@ -206,6 +207,46 @@ class TestIntegracaoFotosReais(unittest.TestCase):
         frame = np.full((240, 320, 3), 127, dtype=np.uint8)
 
         self.assertIsNone(self.reconhecedor.verificar(frame))
+
+    def test_melhor_score_aceita_foto_do_bini(self):
+        """O metodo novo tem que concordar com o `verificar` num rosto real."""
+        imagem = cv2.imread(str(PASTA_FOTOS / "AGC_20261021_123900504.jpg"))
+        self.assertIsNotNone(imagem)
+
+        self.assertGreater(self.reconhecedor.melhor_score(imagem), LIMIAR_PADRAO)
+
+
+@unittest.skipUnless(MODELOS_DISPONIVEIS, "modelos .onnx nao encontrados")
+class TestMelhorScore(unittest.TestCase):
+    """Com duas pessoas no quadro, quem decide nao pode ser so a maior cara."""
+
+    def setUp(self):
+        self.reconhecedor = ReconhecedorRosto(MODELO_YUNET, MODELO_SFACE)
+        self.reconhecedor.centroide = np.array([1.0, 0.0], dtype=np.float32)
+
+    def test_usa_o_maior_score_entre_os_rostos(self):
+        caixa = (0, 0, 1, 1)
+        bom = np.array([1.0, 0.0], dtype=np.float32)
+        ruim = np.array([0.0, 1.0], dtype=np.float32)
+
+        with mock.patch.object(
+            ReconhecedorRosto,
+            "vetores_de",
+            return_value=[(ruim, caixa), (bom, caixa)],
+        ):
+            score = self.reconhecedor.melhor_score(object())
+
+        self.assertAlmostEqual(score, 1.0, places=6)
+
+    def test_frame_sem_rosto_devolve_none(self):
+        with mock.patch.object(ReconhecedorRosto, "vetores_de", return_value=[]):
+            self.assertIsNone(self.reconhecedor.melhor_score(object()))
+
+    def test_sem_calibracao_levanta_runtime_error(self):
+        self.reconhecedor.centroide = None
+
+        with self.assertRaises(RuntimeError):
+            self.reconhecedor.melhor_score(object())
 
 
 @unittest.skipUnless(PASTA_FOTOS.is_dir(), "fotos/bini nao existe")
