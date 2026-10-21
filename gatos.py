@@ -132,15 +132,23 @@ class JanelaMeme:
         try:
             if not self.visivel:
                 cv2.namedWindow(self.janela, cv2.WINDOW_NORMAL)
-                cv2.setWindowProperty(
-                    self.janela, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
-                )
+                # A janela ja existe a partir daqui. Marcar antes de qualquer
+                # outra chamada garante que `esconder()` a destrua mesmo se a
+                # tela cheia ou o desenho falharem (senao ela ficaria presa).
+                self.visivel = True
+                try:
+                    cv2.setWindowProperty(
+                        self.janela, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+                    )
+                except cv2.error as erro:
+                    # Tela cheia e enfeite: sem ela o meme aparece em janela
+                    # normal, o que e melhor do que nao aparecer.
+                    print(f"Tela cheia indisponivel: {erro}")
             cv2.imshow(self.janela, self.imagem)
-            self.visivel = True
         except cv2.error as erro:
             # Wayland/Niri pode perder a janela: nao derruba o loop por isso.
             print(f"Janela do meme indisponivel: {erro}")
-            self._esquecer()
+            self.esconder()
 
     def esconder(self) -> None:
         """Volta para a camera; nao faz nada se a janela nunca apareceu."""

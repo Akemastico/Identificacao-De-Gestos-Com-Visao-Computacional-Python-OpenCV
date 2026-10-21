@@ -203,6 +203,30 @@ class TestJanelaMeme(unittest.TestCase):
 
         self.assertEqual(destroy.call_count, 1)
 
+    def test_tela_cheia_falhando_ainda_mostra_e_nao_vaza_a_janela(self):
+        """Se `setWindowProperty` falhar, a janela criada ainda existe.
+
+        Sem isso o `except` deixava `visivel=False`, `esconder()` nunca
+        destruia a janela e ela ficava presa na frente da camera.
+        """
+        with (
+            mock.patch.object(gatos.cv2, "namedWindow"),
+            mock.patch.object(
+                gatos.cv2, "setWindowProperty", side_effect=cv2.error("sem fullscreen")
+            ),
+            mock.patch.object(gatos.cv2, "imshow") as imshow,
+            mock.patch.object(gatos.cv2, "destroyWindow") as destroy,
+        ):
+            tela = gatos.JanelaMeme(gatos.MEME_PUNHO)
+            tela.mostrar()
+
+            self.assertTrue(tela.visivel)
+            self.assertEqual(imshow.call_count, 1)
+
+            tela.esconder()
+
+        self.assertEqual(destroy.call_count, 1)
+
     def test_meme_ausente_nao_derruba_o_programa(self):
         tela = gatos.JanelaMeme("gatos/nao-existe.webp")
 
