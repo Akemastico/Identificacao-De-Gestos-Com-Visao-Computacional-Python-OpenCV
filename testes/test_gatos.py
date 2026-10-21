@@ -256,14 +256,20 @@ class TestJanelaMeme(unittest.TestCase):
 class CameraComFrames:
     """Camera de mentira que entrega um numero fixo de frames."""
 
-    def __init__(self, frames=65):
+    def __init__(self, frames=65, falhas=0):
         self.restantes = frames
+        self.falhas_iniciais = falhas
+        self.leituras = 0
         self.released = 0
 
     def isOpened(self):
         return True
 
     def read(self):
+        self.leituras += 1
+        if self.falhas_iniciais > 0:
+            self.falhas_iniciais -= 1
+            return False, None
         if self.restantes <= 0:
             return False, None
         self.restantes -= 1
@@ -271,6 +277,41 @@ class CameraComFrames:
 
     def release(self):
         self.released += 1
+
+
+class TestFalhasDeLeitura(unittest.TestCase):
+    """Um tropeco da webcam nao pode encerrar o programa na feira."""
+
+    def _rodar_main(self, camera):
+        detector = mock.Mock()
+        detector.detect_for_video.return_value = mock.Mock(hand_landmarks=[])
+
+        with (
+            mock.patch.object(gatos.cv2, "VideoCapture", return_value=camera),
+            mock.patch.object(gatos, "criar_detector", return_value=detector),
+            mock.patch.object(gatos, "carregar_reconhecedor", side_effect=ValueError("off")),
+            mock.patch.object(gatos.cv2, "imshow"),
+            mock.patch.object(gatos.cv2, "waitKey", return_value=255),
+            mock.patch.object(gatos.cv2, "destroyAllWindows"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            gatos.main()
+
+    def test_falhas_temporarias_nao_encerram_o_programa(self):
+        camera = CameraComFrames(frames=3, falhas=3)
+
+        self._rodar_main(camera)
+
+        self.assertEqual(camera.restantes, 0)  # todos os frames bons foram usados
+        self.assertEqual(camera.released, 1)
+
+    def test_camera_morta_encerra_depois_do_limite(self):
+        camera = CameraComFrames(frames=0)
+
+        self._rodar_main(camera)
+
+        self.assertEqual(camera.leituras, gatos.FALHAS_LEITURA_MAXIMAS)
+        self.assertEqual(camera.released, 1)
 
 
 class TestMainExibeMeme(unittest.TestCase):

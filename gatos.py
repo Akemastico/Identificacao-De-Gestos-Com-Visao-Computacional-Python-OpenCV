@@ -39,6 +39,10 @@ JANELA_MEME = "Meme"
 INTERVALO_ROSTO = 30
 LEITURAS_CONFIRMACAO_ROSTO = 2
 
+# Quantas leituras falhas SEGUIDAS da camera antes de desistir. Um tropeco
+# isolado de USB/V4L2 nao pode encerrar o programa no meio da apresentacao.
+FALHAS_LEITURA_MAXIMAS = 10
+
 GESTOS = {
     frozenset(['dedao','dedoIndicador','dedoMeio','dedoAnelar','dedoMinimo']) : 'Aberta',
     frozenset([]) : 'Fechada',
@@ -230,14 +234,22 @@ def main() -> None:
         )
         reconhecido = False
         counter = 0
+        falhas_leitura = 0
         gesto_anterior = None
 
         while True:
             counter += 1
             ret, frame = cap.read()
             if not ret:
-                print('Erro No RET(1 frame)')
-                break
+                falhas_leitura += 1
+                if falhas_leitura >= FALHAS_LEITURA_MAXIMAS:
+                    print(
+                        "Camera parou de responder "
+                        f"({falhas_leitura} leituras falhas seguidas)"
+                    )
+                    break
+                continue
+            falhas_leitura = 0
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             imageMp = createMediapipeImage(rgb)
