@@ -43,6 +43,10 @@ LEITURAS_CONFIRMACAO_ROSTO = 2
 # isolado de USB/V4L2 nao pode encerrar o programa no meio da apresentacao.
 FALHAS_LEITURA_MAXIMAS = 10
 
+# Erros de inicialização que o programa sabe recuperar: sem o reconhecimento
+# facial ele ainda roda os gestos. Ver o comentario no `main`.
+ERROS_INICIALIZACAO = (cv2.error, zipfile.BadZipFile, OSError, ValueError)
+
 GESTOS = {
     frozenset(['dedao','dedoIndicador','dedoMeio','dedoAnelar','dedoMinimo']) : 'Aberta',
     frozenset([]) : 'Fechada',
@@ -227,9 +231,15 @@ def main() -> None:
         # erros reais: `.onnx` ausente -> cv2.error; `.npz` truncado ->
         # zipfile.BadZipFile/EOFError; pasta ou arquivo ausente -> OSError;
         # calibracao sem rosto -> ValueError.
+        # Só os erros que REALMENTE podem acontecer na inicialização:
+        #   cv2.error        -> modelo .onnx ausente ou corrompido
+        #   zipfile.BadZipFile-> .npz truncado
+        #   OSError          -> arquivo/pasta ausente (FileNotFoundError)
+        #   ValueError       -> calibracao sem rosto, .npz sem as chaves
+        # Qualquer outra coisa e bug de programacao: deixar estourar.
         try:
             reconhecedor = carregar_reconhecedor()
-        except (cv2.error, zipfile.BadZipFile, EOFError, OSError, ValueError, KeyError) as erro:
+        except ERROS_INICIALIZACAO as erro:
             print(
                 "Reconhecimento facial desligado "
                 f"({type(erro).__name__}): {erro}"

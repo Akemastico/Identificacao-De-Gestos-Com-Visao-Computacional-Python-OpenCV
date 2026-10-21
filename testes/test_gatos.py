@@ -10,6 +10,7 @@ O objetivo aqui nao e testar a webcam (nao da sem hardware), e sim garantir que:
 import contextlib
 import io
 import sys
+import tempfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -117,12 +118,35 @@ class TestMainInicializacaoResiliente(unittest.TestCase):
         self.assertIn("Reconhecimento facial desligado", saida)
         self.assertIn("npz truncado", saida)
 
-    def test_npz_de_versao_antiga_keyerror_nao_derruba_main(self):
-        """Arquivo sem a chave `limiar` levanta KeyError em versoes antigas."""
-        camera, saida = self._rodar_main_com_erro_no_rosto(KeyError("limiar"))
+    def test_npz_incompleto_vira_valueerror_na_carregadora(self):
+        """`.npz` sem as chaves e erro conhecido: ValueError, nao KeyError."""
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = Path(pasta) / "rosto.npz"
+            np.savez(str(caminho), centroide=np.zeros(4, dtype=np.float32))
+
+            with self.assertRaises(ValueError):
+                gatos.carregar_reconhecedor(caminho)
+
+    def test_erro_inesperado_nao_e_silenciado(self):
+        """So e' pegado o que pode acontecer de verdade; o resto estoura.
+
+        Um `KeyError` programático não vira "reconhecimento desligado" — ele
+        aparece e diz que há bug, em vez de virar um aviso silencioso.
+        """
+        camera = CameraFalsa()
+
+        with (
+            mock.patch.object(gatos.cv2, "VideoCapture", return_value=camera),
+            mock.patch.object(gatos, "criar_detector", return_value=mock.Mock()),
+            mock.patch.object(
+                gatos, "carregar_reconhecedor", side_effect=KeyError("bug")
+            ),
+            mock.patch.object(gatos.cv2, "destroyAllWindows"),
+        ):
+            with self.assertRaises(KeyError):
+                gatos.main()
 
         self.assertEqual(camera.released, 1)
-        self.assertIn("Reconhecimento facial desligado", saida)
 
 
 class TestLimiarDoEstabilizador(unittest.TestCase):
