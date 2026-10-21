@@ -365,6 +365,55 @@ class TestMainExibeMeme(unittest.TestCase):
         self.assertEqual(tela.mostrar.call_count, 0)
         self.assertGreater(tela.esconder.call_count, 0)
 
+    def _rodar_transicao(self):
+        """Bini aparece, fica, e sai do quadro; a camera tem que voltar."""
+        camera = CameraComFrames(frames=150)
+        reconhecedor = mock.Mock(limiar=0.5)
+        reconhecedor.melhor_score.side_effect = [0.9, 0.9, 0.1, 0.1, 0.0]
+        detector = mock.Mock()
+        detector.detect_for_video.return_value = mock.Mock(hand_landmarks=[])
+        eventos = []
+
+        def mostrar():
+            eventos.append("meme")
+
+        def esconder():
+            eventos.append("camera")
+
+        def imshow(janela, _imagem):
+            if janela == gatos.JANELA_CAMERA:
+                eventos.append("camera")
+
+        with (
+            mock.patch.object(gatos.cv2, "VideoCapture", return_value=camera),
+            mock.patch.object(gatos, "criar_detector", return_value=detector),
+            mock.patch.object(
+                gatos, "carregar_reconhecedor", return_value=reconhecedor
+            ),
+            mock.patch.object(gatos, "JanelaMeme") as janela,
+            mock.patch.object(gatos.cv2, "imshow", side_effect=imshow),
+            mock.patch.object(gatos.cv2, "waitKey", return_value=255),
+            mock.patch.object(gatos.cv2, "destroyAllWindows"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            janela.return_value.disponivel = True
+            janela.return_value.mostrar.side_effect = mostrar
+            janela.return_value.esconder.side_effect = esconder
+            gatos.main()
+
+        return eventos
+
+    def test_volta_para_a_camera_quando_a_pessoa_sai_do_quadro(self):
+        eventos = self._rodar_transicao()
+
+        self.assertIn("meme", eventos, "o meme nunca apareceu")
+        primeiro_meme = eventos.index("meme")
+        self.assertIn(
+            "camera", eventos[primeiro_meme:], "nao voltou para a camera"
+        )
+        # Depois de voltar, a camera continua sendo desenhada.
+        self.assertGreater(eventos.count("camera"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
