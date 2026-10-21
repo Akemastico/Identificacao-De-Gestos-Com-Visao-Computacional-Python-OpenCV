@@ -259,6 +259,10 @@ def main() -> None:
                         f"({falhas_leitura} leituras falhas seguidas)"
                     )
                     break
+                # Bomba de eventos mesmo sem frame: sem isso o `q` nao
+                # funciona enquanto a camera esta falhando.
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
                 continue
             falhas_leitura = 0
 
@@ -293,8 +297,9 @@ def main() -> None:
                 reconhecido = estabilizador.atualizar(score)
 
             # Enquanto o rosto reconhecido estiver no quadro, a tela mostra só
-            # o meme; quando ele sai, volta para a camera.
-            if reconhecido and tela_meme is not None:
+            # o meme; quando ele sai, volta para a camera. Se o meme nao
+            # carregou, a camera continua (senao a tela congela).
+            if reconhecido and tela_meme is not None and tela_meme.disponivel:
                 tela_meme.mostrar()
             else:
                 if tela_meme is not None:

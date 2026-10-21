@@ -326,6 +326,27 @@ class TestFalhasDeLeitura(unittest.TestCase):
         self.assertEqual(camera.leituras, gatos.FALHAS_LEITURA_MAXIMAS)
         self.assertEqual(camera.released, 1)
 
+    def test_tecla_q_e_processada_mesmo_com_camera_morta(self):
+        """Sem bomba de eventos o `q` nao funciona enquanto a camera falha."""
+        camera = CameraComFrames(frames=0)
+        detector = mock.Mock()
+        detector.detect_for_video.return_value = mock.Mock(hand_landmarks=[])
+
+        with (
+            mock.patch.object(gatos.cv2, "VideoCapture", return_value=camera),
+            mock.patch.object(gatos, "criar_detector", return_value=detector),
+            mock.patch.object(
+                gatos, "carregar_reconhecedor", side_effect=ValueError("off")
+            ),
+            mock.patch.object(gatos.cv2, "imshow"),
+            mock.patch.object(gatos.cv2, "waitKey", return_value=255) as waitKey,
+            mock.patch.object(gatos.cv2, "destroyAllWindows"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            gatos.main()
+
+        self.assertGreater(waitKey.call_count, 0)
+
 
 class TestMainExibeMeme(unittest.TestCase):
     """O meme fica na tela enquanto o rosto reconhecido estiver no quadro."""
@@ -378,7 +399,7 @@ class TestMainExibeMeme(unittest.TestCase):
             eventos.append("meme")
 
         def esconder():
-            eventos.append("camera")
+            eventos.append("esconder")
 
         def imshow(janela, _imagem):
             if janela == gatos.JANELA_CAMERA:
@@ -407,12 +428,44 @@ class TestMainExibeMeme(unittest.TestCase):
         eventos = self._rodar_transicao()
 
         self.assertIn("meme", eventos, "o meme nunca apareceu")
-        primeiro_meme = eventos.index("meme")
+        ultimo_meme = len(eventos) - 1 - eventos[::-1].index("meme")
+        # `esconder` e um evento proprio: se o loop parar de chamar, este
+        # teste tem que falhar (antes ele so olhava o imshow da camera).
         self.assertIn(
-            "camera", eventos[primeiro_meme:], "nao voltou para a camera"
+            "esconder", eventos[ultimo_meme:], "a janela do meme nao foi fechada"
         )
-        # Depois de voltar, a camera continua sendo desenhada.
+        self.assertIn(
+            "camera", eventos[ultimo_meme:], "nao voltou para a camera"
+        )
         self.assertGreater(eventos.count("camera"), 1)
+
+    def test_meme_que_nao_carrega_nao_congela_a_camera(self):
+        """Sem imagem, a camera continua aparecendo (nao fica tela parada)."""
+        camera = CameraComFrames(frames=90)
+        reconhecedor = mock.Mock(limiar=0.5)
+        reconhecedor.melhor_score.return_value = 0.9
+        detector = mock.Mock()
+        detector.detect_for_video.return_value = mock.Mock(hand_landmarks=[])
+
+        with (
+            mock.patch.object(gatos.cv2, "VideoCapture", return_value=camera),
+            mock.patch.object(gatos, "criar_detector", return_value=detector),
+            mock.patch.object(
+                gatos, "carregar_reconhecedor", return_value=reconhecedor
+            ),
+            mock.patch.object(gatos, "JanelaMeme") as janela,
+            mock.patch.object(gatos.cv2, "imshow") as imshow,
+            mock.patch.object(gatos.cv2, "waitKey", return_value=255),
+            mock.patch.object(gatos.cv2, "destroyAllWindows"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            janela.return_value.disponivel = False
+            gatos.main()
+
+        janelas = [chamada.args[0] for chamada in imshow.call_args_list]
+        # Reconhecido a partir do frame 60: sem a correcao, os ultimos 30
+        # frames ficariam sem camera nenhuma na tela.
+        self.assertGreater(janelas.count(gatos.JANELA_CAMERA), 80)
 
 
 if __name__ == "__main__":
