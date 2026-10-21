@@ -279,6 +279,19 @@ class CameraComFrames:
         self.released += 1
 
 
+class TestProximoTimestamp(unittest.TestCase):
+    """MediaPipe exige timestamp estritamente crescente entre frames."""
+
+    def test_avanca_quando_dois_frames_caem_no_mesmo_milissegundo(self):
+        self.assertEqual(gatos.proximo_timestamp(100, 100), 101)
+
+    def test_acompanha_o_relogio_quando_ele_avanca(self):
+        self.assertEqual(gatos.proximo_timestamp(100, 150), 150)
+
+    def test_primeiro_frame_nunca_e_zero(self):
+        self.assertEqual(gatos.proximo_timestamp(0, 0), 1)
+
+
 class TestFalhasDeLeitura(unittest.TestCase):
     """Um tropeco da webcam nao pode encerrar o programa na feira."""
 

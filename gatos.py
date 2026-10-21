@@ -101,6 +101,16 @@ def GestureExecuter(gesture: str) -> None:
     print(gesture)
 
 
+def proximo_timestamp(anterior: int, agora_ms: int) -> int:
+    """Timestamp estritamente crescente para o MediaPipe.
+
+    `getTickCount` tem resolucao de 1 ms: dois frames processados no mesmo
+    milissegundo davam o mesmo timestamp e o MediaPipe levantava
+    `ValueError: Input timestamp must be monotonically increasing`.
+    """
+    return max(anterior + 1, int(agora_ms))
+
+
 def decidir_meme(reconhecido: bool) -> str | None:
     """Qual meme mostrar para este estado de reconhecimento (funcao pura)."""
     if reconhecido:
@@ -235,6 +245,7 @@ def main() -> None:
         reconhecido = False
         counter = 0
         falhas_leitura = 0
+        timestamp_ms = 0
         gesto_anterior = None
 
         while True:
@@ -253,7 +264,10 @@ def main() -> None:
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             imageMp = createMediapipeImage(rgb)
-            timestamp_ms = int(cv2.getTickCount() / cv2.getTickFrequency() * 1000)
+            timestamp_ms = proximo_timestamp(
+                timestamp_ms,
+                int(cv2.getTickCount() / cv2.getTickFrequency() * 1000),
+            )
             result = detector.detect_for_video(imageMp, timestamp_ms)
 
             for hand in result.hand_landmarks:
