@@ -119,7 +119,12 @@ def mostrar_meme(caminho) -> None:
     while True:
         if cv2.waitKey(30) & 0xFF != 255:  # 255 = nenhuma tecla
             break
-        if cv2.getWindowProperty(JANELA_MEME, cv2.WND_PROP_VISIBLE) < 1:
+        try:
+            if cv2.getWindowProperty(JANELA_MEME, cv2.WND_PROP_VISIBLE) < 1:
+                break
+        except cv2.error:
+            # Backend highgui perdeu a janela (comum em Wayland/WM): nao ha
+            # tecla a esperar, sair limpo e a unica saida.
             break
 
     try:
@@ -154,21 +159,23 @@ def main() -> None:
         print("Nao consegui abrir a camera (indice 0)")
         return
 
-    detector = criar_detector()
-
-    # Rosto e um extra: se faltar modelo/foto, os gestos continuam funcionando.
+    # Daqui para baixo a camera esta aberta: o `try/finally` garante que ela
+    # seja liberada mesmo se o detector ou o rosto falharem na inicializacao.
     try:
-        reconhecedor = carregar_reconhecedor()
-    except (OSError, ValueError) as erro:
-        print(f"Reconhecimento facial desligado: {erro}")
-        reconhecedor = None
+        detector = criar_detector()
 
-    estabilizador = Estabilizador()
-    reconhecido_anterior = False
-    counter = 0
-    gesto_anterior = None
+        # Rosto e um extra: se faltar modelo/foto, os gestos continuam.
+        try:
+            reconhecedor = carregar_reconhecedor()
+        except (OSError, ValueError) as erro:
+            print(f"Reconhecimento facial desligado: {erro}")
+            reconhecedor = None
 
-    try:
+        estabilizador = Estabilizador()
+        reconhecido_anterior = False
+        counter = 0
+        gesto_anterior = None
+
         while True:
             counter += 1
             ret, frame = cap.read()
