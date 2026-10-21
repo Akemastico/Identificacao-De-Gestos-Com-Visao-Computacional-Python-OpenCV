@@ -11,6 +11,7 @@ nao pode ser testado sem hardware.
 """
 
 import subprocess
+import zipfile
 from pathlib import Path
 
 import cv2
@@ -18,7 +19,7 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-from rosto import Estabilizador, ReconhecedorRosto
+from rosto import LIMIAR_PADRAO, Estabilizador, ReconhecedorRosto
 
 # Caminhos relativos ao arquivo, nunca ao diretorio de onde o script foi chamado.
 RAIZ = Path(__file__).resolve().parent
@@ -112,20 +113,27 @@ def mostrar_meme(caminho) -> None:
         print(f"Nao consegui abrir o meme: {caminho}")
         return
 
-    cv2.namedWindow(JANELA_MEME, cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty(JANELA_MEME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    cv2.imshow(JANELA_MEME, imagem)
+    # Toda a interacao com a janela fica sob o mesmo guard: em backend highgui
+    # que perde a janela (Wayland/Niri), qualquer uma dessas chamadas pode
+    # levantar `cv2.error`. Sair do meme e a unica saida; a camera continua.
+    try:
+        cv2.namedWindow(JANELA_MEME, cv2.WINDOW_NORMAL)
+        cv2.setWindowProperty(JANELA_MEME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        cv2.imshow(JANELA_MEME, imagem)
 
-    while True:
-        if cv2.waitKey(30) & 0xFF != 255:  # 255 = nenhuma tecla
-            break
-        try:
-            if cv2.getWindowProperty(JANELA_MEME, cv2.WND_PROP_VISIBLE) < 1:
+        while True:
+            if cv2.waitKey(30) & 0xFF != 255:  # 255 = nenhuma tecla
                 break
-        except cv2.error:
-            # Backend highgui perdeu a janela (comum em Wayland/WM): nao ha
-            # tecla a esperar, sair limpo e a unica saida.
-            break
+            try:
+                if cv2.getWindowProperty(JANELA_MEME, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+            except cv2.error:
+                # janela ja sumiu: nao ha tecla a esperar
+                break
+    except cv2.error as erro:
+        # Motivo impresso de proposito: nao mascara a falha, so evita que ela
+        # derrube o loop principal.
+        print(f"Janela do meme indisponivel: {erro}")
 
     try:
         cv2.destroyWindow(JANELA_MEME)
@@ -153,6 +161,17 @@ def carregar_reconhecedor(caminho=ARQUIVO_ROSTO) -> ReconhecedorRosto:
     return reconhecedor
 
 
+def criar_estabilizador(reconhecedor=None) -> Estabilizador:
+    """Estabilizador com o MESMO limiar que o reconhecedor usa para aceitar.
+
+    `ReconhecedorRosto.carregar` restaura o limiar do `.npz`, que pode diferir
+    do `LIMIAR_PADRAO`. Se o estabilizador ficasse no padrao, aceitacao e
+    estabilizacao discordariam nas bordas.
+    """
+    limiar = reconhecedor.limiar if reconhecedor is not None else LIMIAR_PADRAO
+    return Estabilizador(limiar=limiar)
+
+
 def main() -> None:
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -164,14 +183,20 @@ def main() -> None:
     try:
         detector = criar_detector()
 
-        # Rosto e um extra: se faltar modelo/foto, os gestos continuam.
+        # Rosto e um extra: se faltar modelo/foto, os gestos continuam. Os
+        # erros reais: `.onnx` ausente -> cv2.error; `.npz` truncado ->
+        # zipfile.BadZipFile/EOFError; pasta ou arquivo ausente -> OSError;
+        # calibracao sem rosto -> ValueError.
         try:
             reconhecedor = carregar_reconhecedor()
-        except (OSError, ValueError) as erro:
-            print(f"Reconhecimento facial desligado: {erro}")
+        except (cv2.error, zipfile.BadZipFile, EOFError, OSError, ValueError) as erro:
+            print(
+                "Reconhecimento facial desligado "
+                f"({type(erro).__name__}): {erro}"
+            )
             reconhecedor = None
 
-        estabilizador = Estabilizador()
+        estabilizador = criar_estabilizador(reconhecedor)
         reconhecido_anterior = False
         counter = 0
         gesto_anterior = None
