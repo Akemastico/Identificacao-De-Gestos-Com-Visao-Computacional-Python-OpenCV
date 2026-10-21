@@ -33,6 +33,12 @@ MEME_PUNHO = "gatos/punho.webp"
 JANELA_CAMERA = "Camera"
 JANELA_MEME = "Meme"
 
+# Checagem do rosto a cada 30 frames: o reconhecimento facial e caro e nao
+# precisa de 30 leituras por segundo. Com 2 leituras para confirmar, o gato
+# aparece em ~2 s e some ~2 s depois que a pessoa sai do quadro.
+INTERVALO_ROSTO = 30
+LEITURAS_CONFIRMACAO_ROSTO = 2
+
 GESTOS = {
     frozenset(['dedao','dedoIndicador','dedoMeio','dedoAnelar','dedoMinimo']) : 'Aberta',
     frozenset([]) : 'Fechada',
@@ -98,47 +104,57 @@ def decidir_meme(reconhecido: bool) -> str | None:
     return None
 
 
-def mostrar_meme(caminho) -> None:
-    """Mostra a imagem em tela cheia e volta ao apertar qualquer tecla.
+class JanelaMeme:
+    """Janela de tela cheia que fica visivel ENQUANTO o rosto estiver no quadro.
 
-    Tambem sai se a janela for fechada pelo gerenciador de janelas: sem essa
-    checagem o `waitKey` ficaria esperando uma tecla que nunca chega.
+    Nao pode ser modal (nao pode parar o loop): o programa precisa continuar
+    lendo a camera para perceber que a pessoa saiu. Por isso `mostrar()` so
+    repinta a imagem e volta — quem decide quando esconder e `main()`.
     """
-    caminho = Path(caminho)
-    if not caminho.is_absolute():
-        caminho = RAIZ / caminho
 
-    imagem = cv2.imread(str(caminho))
-    if imagem is None:
-        print(f"Nao consegui abrir o meme: {caminho}")
-        return
+    def __init__(self, caminho, janela=JANELA_MEME):
+        self.janela = janela
+        caminho = Path(caminho)
+        if not caminho.is_absolute():
+            caminho = RAIZ / caminho
 
-    # Toda a interacao com a janela fica sob o mesmo guard: em backend highgui
-    # que perde a janela (Wayland/Niri), qualquer uma dessas chamadas pode
-    # levantar `cv2.error`. Sair do meme e a unica saida; a camera continua.
-    try:
-        cv2.namedWindow(JANELA_MEME, cv2.WINDOW_NORMAL)
-        cv2.setWindowProperty(JANELA_MEME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-        cv2.imshow(JANELA_MEME, imagem)
+        self.imagem = cv2.imread(str(caminho))
+        self.disponivel = self.imagem is not None
+        self.visivel = False
+        if not self.disponivel:
+            print(f"Nao consegui abrir o meme: {caminho}")
 
-        while True:
-            if cv2.waitKey(30) & 0xFF != 255:  # 255 = nenhuma tecla
-                break
-            try:
-                if cv2.getWindowProperty(JANELA_MEME, cv2.WND_PROP_VISIBLE) < 1:
-                    break
-            except cv2.error:
-                # janela ja sumiu: nao ha tecla a esperar
-                break
-    except cv2.error as erro:
-        # Motivo impresso de proposito: nao mascara a falha, so evita que ela
-        # derrube o loop principal.
-        print(f"Janela do meme indisponivel: {erro}")
+    def mostrar(self) -> None:
+        """Cria a janela na primeira vez e repinta a imagem nas seguintes."""
+        if not self.disponivel:
+            return
 
-    try:
-        cv2.destroyWindow(JANELA_MEME)
-    except cv2.error:
-        pass  # a janela ja foi fechada pelo gerenciador de janelas
+        try:
+            if not self.visivel:
+                cv2.namedWindow(self.janela, cv2.WINDOW_NORMAL)
+                cv2.setWindowProperty(
+                    self.janela, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+                )
+            cv2.imshow(self.janela, self.imagem)
+            self.visivel = True
+        except cv2.error as erro:
+            # Wayland/Niri pode perder a janela: nao derruba o loop por isso.
+            print(f"Janela do meme indisponivel: {erro}")
+            self._esquecer()
+
+    def esconder(self) -> None:
+        """Volta para a camera; nao faz nada se a janela nunca apareceu."""
+        if not self.visivel:
+            return
+
+        try:
+            cv2.destroyWindow(self.janela)
+        except cv2.error:
+            pass  # o gerenciador de janelas ja fechou
+        self._esquecer()
+
+    def _esquecer(self) -> None:
+        self.visivel = False
 
 
 def carregar_reconhecedor(caminho=ARQUIVO_ROSTO) -> ReconhecedorRosto:
@@ -161,7 +177,9 @@ def carregar_reconhecedor(caminho=ARQUIVO_ROSTO) -> ReconhecedorRosto:
     return reconhecedor
 
 
-def criar_estabilizador(reconhecedor=None) -> Estabilizador:
+def criar_estabilizador(
+    reconhecedor=None, leituras=LEITURAS_CONFIRMACAO_ROSTO
+) -> Estabilizador:
     """Estabilizador com o MESMO limiar que o reconhecedor usa para aceitar.
 
     `ReconhecedorRosto.carregar` restaura o limiar do `.npz`, que pode diferir
@@ -169,7 +187,7 @@ def criar_estabilizador(reconhecedor=None) -> Estabilizador:
     estabilizacao discordariam nas bordas.
     """
     limiar = reconhecedor.limiar if reconhecedor is not None else LIMIAR_PADRAO
-    return Estabilizador(limiar=limiar)
+    return Estabilizador(limiar=limiar, frames=leituras)
 
 
 def main() -> None:
@@ -197,7 +215,12 @@ def main() -> None:
             reconhecedor = None
 
         estabilizador = criar_estabilizador(reconhecedor)
-        reconhecido_anterior = False
+        # Carrega o meme uma unica vez; se o rosto for reconhecido, a janela
+        # fica na tela por todos os frames seguintes (sem bloquear o loop).
+        tela_meme = (
+            JanelaMeme(decidir_meme(True)) if reconhecedor is not None else None
+        )
+        reconhecido = False
         counter = 0
         gesto_anterior = None
 
@@ -226,21 +249,23 @@ def main() -> None:
                     GestureExecuter(ActualGesture)
                     gesto_anterior = ActualGesture
 
-            # A cada 5 frames (mesmo ritmo dos gestos), pontua o rosto. O
-            # estabilizador so vira True depois de 3 leituras seguidas boas.
-            if reconhecedor is not None and counter % 5 == 0:
+            # A cada INTERVALO_ROSTO frames pontua o rosto. O estabilizador so
+            # muda de estado depois de LEITURAS_CONFIRMACAO_ROSTO leituras
+            # seguidas do mesmo lado (~2 s para entrar e ~2 s para sair).
+            if reconhecedor is not None and counter % INTERVALO_ROSTO == 0:
                 leitura = reconhecedor.verificar(frame)
                 score = leitura[0] if leitura is not None else None
                 reconhecido = estabilizador.atualizar(score)
 
-                # Borda de subida: mostra uma vez por entrada no estado True.
-                if reconhecido and not reconhecido_anterior:
-                    caminho_meme = decidir_meme(reconhecido)
-                    if caminho_meme is not None:
-                        mostrar_meme(caminho_meme)
-                reconhecido_anterior = reconhecido
+            # Enquanto o rosto reconhecido estiver no quadro, a tela mostra só
+            # o meme; quando ele sai, volta para a camera.
+            if reconhecido and tela_meme is not None:
+                tela_meme.mostrar()
+            else:
+                if tela_meme is not None:
+                    tela_meme.esconder()
+                cv2.imshow(JANELA_CAMERA, frame)
 
-            cv2.imshow(JANELA_CAMERA, frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
     finally:
