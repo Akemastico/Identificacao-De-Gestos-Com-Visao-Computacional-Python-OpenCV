@@ -2,3 +2,8 @@
 .idea/
 __pycache__/
 .trae/
+
+# Dados biometricos e modelos grandes: o repo e publico
+fotos/
+modelos/*.onnx
+*.npz
