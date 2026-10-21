@@ -151,15 +151,40 @@ class ReconhecedorRosto:
         )
         self._extrator = cv2.FaceRecognizerSF.create(str(caminho_sface), "")
 
-    def _detectar_maior(self, imagem):
-        """Devolve a linha de 15 floats do YuNet, ou None se nao houver rosto."""
+    def _detectar_todos(self, imagem):
+        """Linhas de 15 floats do YuNet, da maior area para a menor."""
         altura, largura = imagem.shape[:2]
         self._detector.setInputSize((largura, altura))
         _, rostos = self._detector.detect(imagem)
         if rostos is None or len(rostos) == 0:
-            return None
+            return []
         # A linha e (x, y, w, h, 5 pontos, score); a area decide o "maior".
-        return max(rostos, key=lambda rosto: float(rosto[2]) * float(rosto[3]))
+        return sorted(
+            rostos, key=lambda rosto: float(rosto[2]) * float(rosto[3]), reverse=True
+        )
+
+    def _detectar_maior(self, imagem):
+        """Devolve a linha de 15 floats do YuNet, ou None se nao houver rosto."""
+        rostos = self._detectar_todos(imagem)
+        return rostos[0] if rostos else None
+
+    @staticmethod
+    def _caixa_original(rosto, imagem, frame):
+        """Leva a caixa de `imagem` (reduzida) para as coordenadas de `frame`."""
+        altura_original, largura_original = frame.shape[:2]
+        escala_x = largura_original / imagem.shape[1]
+        escala_y = altura_original / imagem.shape[0]
+        x = int(round(float(rosto[0]) * escala_x))
+        y = int(round(float(rosto[1]) * escala_y))
+        largura = int(round(float(rosto[2]) * escala_x))
+        altura = int(round(float(rosto[3]) * escala_y))
+
+        # Arredondamento pode estourar 1 pixel para fora do frame.
+        x = min(max(x, 0), largura_original)
+        y = min(max(y, 0), altura_original)
+        largura = min(largura, largura_original - x)
+        altura = min(altura, altura_original - y)
+        return x, y, largura, altura
 
     def _assinatura(self, imagem, rosto):
         alinhado = self._extrator.alignCrop(imagem, rosto)
@@ -232,18 +257,23 @@ class ReconhecedorRosto:
             return None
 
         score = float(np.dot(self.centroide, self._assinatura(imagem, rosto)))
+        return score, self._caixa_original(rosto, imagem, frame)
 
-        altura_original, largura_original = frame.shape[:2]
-        escala_x = largura_original / imagem.shape[1]
-        escala_y = altura_original / imagem.shape[0]
-        x = int(round(float(rosto[0]) * escala_x))
-        y = int(round(float(rosto[1]) * escala_y))
-        largura = int(round(float(rosto[2]) * escala_x))
-        altura = int(round(float(rosto[3]) * escala_y))
+    def vetores_de(self, frame, limite=None):
+        """Assinatura de cada rosto do frame, da maior caixa para a menor.
 
-        # Arredondamento pode estourar 1 pixel para fora do frame.
-        x = min(max(x, 0), largura_original)
-        y = min(max(y, 0), altura_original)
-        largura = min(largura, largura_original - x)
-        altura = min(altura, altura_original - y)
-        return score, (x, y, largura, altura)
+        Devolve `[(vetor, (x, y, w, h)), ...]`, com as caixas nas coordenadas do
+        frame original. `limite` fica so com os N maiores rostos (None = todos).
+
+        Nao depende do centroide, entao funciona antes de `calibrar`: serve para
+        medir um rosto individual (por exemplo, foto de outra pessoa). O frame e
+        reduzido do mesmo jeito que na calibracao.
+        """
+        imagem = _redimensionar(frame)
+        rostos = self._detectar_todos(imagem)
+        if limite is not None:
+            rostos = rostos[:limite]
+        return [
+            (self._assinatura(imagem, rosto), self._caixa_original(rosto, imagem, frame))
+            for rosto in rostos
+        ]

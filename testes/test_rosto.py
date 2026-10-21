@@ -208,5 +208,61 @@ class TestIntegracaoFotosReais(unittest.TestCase):
         self.assertIsNone(self.reconhecedor.verificar(frame))
 
 
+@unittest.skipUnless(PASTA_FOTOS.is_dir(), "fotos/bini nao existe")
+class TestVetoresDe(unittest.TestCase):
+    """`vetores_de` e a porta publica para medir um rosto individual."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.reconhecedor = ReconhecedorRosto(MODELO_YUNET, MODELO_SFACE)
+
+    def test_funciona_sem_calibracao_e_devolve_vetor_unitario(self):
+        imagem = cv2.imread(str(PASTA_FOTOS / "AGC_20261021_123900504.jpg"))
+        self.assertIsNotNone(imagem)
+
+        resultados = self.reconhecedor.vetores_de(imagem)
+
+        self.assertEqual(len(resultados), 1)
+        vetor, caixa = resultados[0]
+        self.assertAlmostEqual(float(np.linalg.norm(vetor)), 1.0, places=5)
+        self.assertEqual(vetor.shape, (128,))
+        self.assertEqual(len(caixa), 4)
+        for valor in caixa:
+            self.assertIsInstance(valor, int)
+
+    def test_caixa_bate_com_a_de_verificar(self):
+        imagem = cv2.imread(str(PASTA_FOTOS / "AGC_20261021_123900504.jpg"))
+        self.reconhecedor.calibrar(PASTA_FOTOS)
+
+        score, caixa_verificar = self.reconhecedor.verificar(imagem)
+        _, caixa_vetores = self.reconhecedor.vetores_de(imagem)[0]
+
+        self.assertEqual(caixa_vetores, caixa_verificar)
+        self.assertGreater(score, LIMIAR_PADRAO)
+
+    def test_frame_sem_rosto_devolve_lista_vazia(self):
+        frame = np.full((240, 320, 3), 127, dtype=np.uint8)
+
+        self.assertEqual(self.reconhecedor.vetores_de(frame), [])
+
+    def test_limite_corta_do_maior_para_o_menor(self):
+        grupo = Path.home() / "Downloads" / "grupo.jpg"
+        if not grupo.is_file():
+            self.skipTest("grupo.jpg nao encontrado em ~/Downloads")
+        imagem = cv2.imread(str(grupo))
+        self.assertIsNotNone(imagem)
+
+        todos = self.reconhecedor.vetores_de(imagem)
+        dois = self.reconhecedor.vetores_de(imagem, limite=2)
+
+        self.assertEqual(len(todos), 5)
+        self.assertEqual(len(dois), 2)
+        for (vetor_dois, caixa_dois), (vetor_todos, caixa_todos) in zip(dois, todos):
+            np.testing.assert_allclose(vetor_dois, vetor_todos, atol=1e-6)
+            self.assertEqual(caixa_dois, caixa_todos)
+        areas = [largura * altura for _, (_, _, largura, altura) in todos]
+        self.assertEqual(areas, sorted(areas, reverse=True))
+
+
 if __name__ == "__main__":
     unittest.main()
