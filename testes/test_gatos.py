@@ -117,6 +117,13 @@ class TestMainInicializacaoResiliente(unittest.TestCase):
         self.assertIn("Reconhecimento facial desligado", saida)
         self.assertIn("npz truncado", saida)
 
+    def test_npz_de_versao_antiga_keyerror_nao_derruba_main(self):
+        """Arquivo sem a chave `limiar` levanta KeyError em versoes antigas."""
+        camera, saida = self._rodar_main_com_erro_no_rosto(KeyError("limiar"))
+
+        self.assertEqual(camera.released, 1)
+        self.assertIn("Reconhecimento facial desligado", saida)
+
 
 class TestLimiarDoEstabilizador(unittest.TestCase):
     """Aceitacao (reconhecedor) e estabilizacao precisam do MESMO limiar."""

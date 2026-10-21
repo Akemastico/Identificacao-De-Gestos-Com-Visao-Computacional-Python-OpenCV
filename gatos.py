@@ -215,7 +215,7 @@ def main() -> None:
         # calibracao sem rosto -> ValueError.
         try:
             reconhecedor = carregar_reconhecedor()
-        except (cv2.error, zipfile.BadZipFile, EOFError, OSError, ValueError) as erro:
+        except (cv2.error, zipfile.BadZipFile, EOFError, OSError, ValueError, KeyError) as erro:
             print(
                 "Reconhecimento facial desligado "
                 f"({type(erro).__name__}): {erro}"

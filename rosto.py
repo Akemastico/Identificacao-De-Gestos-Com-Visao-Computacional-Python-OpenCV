@@ -234,6 +234,15 @@ class ReconhecedorRosto:
 
     def carregar(self, caminho):
         with np.load(str(caminho)) as dados:
+            obrigatorias = ("centroide", "limiar", "n_amostras")
+            faltando = [chave for chave in obrigatorias if chave not in dados.files]
+            if faltando:
+                # ValueError em vez de KeyError: quem chama ja trata ValueError
+                # como "arquivo inutilizavel" e a mensagem diz o que falta.
+                raise ValueError(
+                    f"{caminho}: arquivo de rosto incompleto "
+                    f"(faltam: {', '.join(faltando)})"
+                )
             self.centroide = np.asarray(dados["centroide"], dtype=np.float32)
             self.limiar = float(dados["limiar"])
             self.n_amostras = int(dados["n_amostras"])

@@ -156,6 +156,19 @@ class TestSalvarCarregar(unittest.TestCase):
             with self.assertRaises(ValueError):
                 reconhecedor.salvar(Path(pasta_temporaria) / "vazio.npz")
 
+    def test_arquivo_incompleto_vira_valueerror(self):
+        """`.npz` de versao antiga nao pode estourar KeyError no meio do programa."""
+        reconhecedor = ReconhecedorRosto(MODELO_YUNET, MODELO_SFACE)
+
+        with tempfile.TemporaryDirectory() as pasta_temporaria:
+            caminho = Path(pasta_temporaria) / "antigo.npz"
+            np.savez(str(caminho), centroide=vetor_unitario(*np.arange(1, 9)))
+
+            with self.assertRaises(ValueError) as erro:
+                reconhecedor.carregar(caminho)
+
+        self.assertIn("limiar", str(erro.exception))
+
 
 @unittest.skipUnless(MODELOS_DISPONIVEIS, "modelos .onnx nao encontrados")
 class TestCalibrarSemRosto(unittest.TestCase):
